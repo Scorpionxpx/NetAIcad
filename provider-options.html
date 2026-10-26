@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>NetAIcad - Fournisseur API</title><style>body{font:16px sans-serif;max-width:720px;margin:40px auto;padding:16px;background:#15202b;color:white}label{display:block;margin:20px 0}input,select{display:block;width:100%;box-sizing:border-box;padding:10px;margin-top:8px}button{padding:10px;margin:8px 8px 0 0}p{line-height:1.5}</style></head><body>
+<h1>Fournisseur des reponses aux quiz</h1>
+<p>Le bouton du quiz conserve actuellement son libelle OpenAI, mais utilise le fournisseur selectionne ici. Gemini et les modes Web AI ne sont pas modifies.</p>
+<label>Fournisseur<select id="provider"><option value="openai">OpenAI (configuration existante)</option><option value="mistral">Mistral AI</option></select></label>
+<label>Nouvelle cle Mistral<input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="Laisser vide pour conserver la cle deja enregistree"></label>
+<label>Modele Mistral<input id="model" value="mistral-small-latest" spellcheck="false"></label>
+<p>La cle Mistral est stockee dans chrome.storage.local, sans synchronisation. Ce stockage n'est pas un coffre-fort chiffre. Les questions sont envoyees directement a api.mistral.ai uniquement lorsque Mistral est selectionne et que tu demandes une reponse. Les appels peuvent etre factures par Mistral.</p>
+<button id="save">Enregistrer</button><button id="remove">Supprimer la cle Mistral</button>
+<p id="status" role="status"></p><script src="provider-options.js"></script></body></html>
