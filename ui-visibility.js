@@ -1,45 +1,61 @@
-// Applies user visibility preferences to NetAIcad controls.
+// Exact extension IDs only. CSS survives button recreation without changing inline styles.
 (() => {
-  const ids = {log: 'netacad-local-diagnostics', quiz: 'netacad-quiz-only-control', auto: 'netacad-quiz-auto-control'};
-  let prefs = {book: true, log: true, quiz: true, auto: true};
-  const bookPattern = /\b(livre|lire|parcours|module)\b/i;
-  const reserved = new Set(Object.values(ids));
-  function controlText(node) {
-    let text = '';
-    if (node?.shadowRoot) text += node.shadowRoot.textContent || '';
-    text += ' ' + (node?.textContent || '');
-    return text;
+  const selectors = {
+    book: '#netacad-ai-walker-btn',
+    log: '#netacad-local-diagnostics',
+    quiz: '#netacad-quiz-only-control',
+    auto: '#netacad-quiz-auto-control'
+  };
+  const styleId = 'netacad-ui-visibility-rules';
+  const observed = new WeakSet(), watchedFrames = new WeakSet();
+  let prefs = {}, ready = false, queued = false, revision = 0;
+  function rules() {
+    return Object.entries(selectors).filter(([key]) => !ready || prefs[key] === false).map(([, selector]) => selector + '{display:none!important;}').join('\n');
   }
-  function findBookControls() {
-    if (!document.body) return [];
-    return [...document.body.children].filter(node => {
-      if (!node?.isConnected || reserved.has(node.id)) return false;
-      if (!node.shadowRoot && !node.id?.startsWith('netacad')) return false;
-      const text = controlText(node);
-      if (/quiz|journal|logs? netaicad|diagnostic/i.test(text)) return false;
-      return bookPattern.test(text);
-    });
+  function schedule() {
+    if (queued) return;
+    queued = true;
+    setTimeout(() => { queued = false; apply(); }, 50);
   }
-  function setVisibility(node, show) {
-    if (!node?.isConnected) return;
-    node.style.setProperty('display', show ? '' : 'none', 'important');
-    node.style.setProperty('visibility', show ? '' : 'hidden', 'important');
-    node.style.setProperty('opacity', show ? '' : '0', 'important');
-    node.style.setProperty('pointer-events', show ? '' : 'none', 'important');
+  function install(doc, css, seen) {
+    if (!doc || seen.has(doc)) return;
+    seen.add(doc);
+    const parent = doc.head || doc.documentElement;
+    if (!parent) return;
+    let style = doc.getElementById(styleId);
+    if (!style) {
+      style = doc.createElement('style'); style.id = styleId;
+      style.textContent = css; parent.appendChild(style);
+    } else if (style.textContent !== css) style.textContent = css;
+    if (!observed.has(doc)) {
+      observed.add(doc);
+      new MutationObserver(schedule).observe(doc, {childList:true,subtree:true});
+    }
+    // The top-frame walker inserts its button into the course iframe.
+    // Apply there as well even if that frame has no content-script instance.
+    for (const frame of doc.querySelectorAll('iframe')) {
+      if (!watchedFrames.has(frame)) {
+        watchedFrames.add(frame); frame.addEventListener('load', schedule);
+      }
+      try { install(frame.contentDocument, css, seen); } catch (_) { /* Other-origin frames use their own content script. */ }
+    }
   }
-  function apply() {
-    if (!document.body) return;
-    for (const [key, id] of Object.entries(ids)) setVisibility(document.getElementById(id), prefs[key]);
-    for (const book of findBookControls()) setVisibility(book, prefs.book);
-  }
+  function apply() { install(document, rules(), new Set()); }
   async function load() {
-    try { prefs = {book: true, log: true, quiz: true, auto: true, ...(await chrome.storage.local.get('uiVisibility')).uiVisibility}; }
-    catch (_) { console.warn('[NetAIcad visibility] Preferences indisponibles ; affichage par defaut.'); }
-    apply();
+    const current = ++revision;
+    try {
+      const saved = await chrome.storage.local.get('uiVisibility');
+      if (current !== revision) return;
+      prefs = saved.uiVisibility || {}; ready = true; apply();
+    } catch (_) {
+      if (current !== revision) return;
+      ready = true; apply();
+      console.warn('[NetAIcad visibility] Lecture des preferences impossible.');
+    }
   }
-  chrome.storage.onChanged.addListener((changes, area) => { if (area === 'local' && changes.uiVisibility) load(); });
-  setInterval(apply, 800);
-  let queued = false;
-  new MutationObserver(() => { if (!queued) { queued = true; setTimeout(() => { queued = false; apply(); }, 120); } }).observe(document, {childList: true, subtree: true});
-  load();
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || !changes.uiVisibility) return;
+    ++revision; prefs = changes.uiVisibility.newValue || {}; ready = true; apply();
+  });
+  apply(); load();
 })();
