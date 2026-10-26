@@ -1,4 +1,4 @@
-// Discreet automatic quiz mode: collapsed launcher, expanding panel on demand.
+// Discreet automatic quiz launcher, always available unless hidden by settings.
 (() => {
   let running = false, stopped = false, host, launcher, panel, start, stop, status, expanded = false;
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -111,19 +111,22 @@
       panel.append(start, stop, status); root.append(style, launcher, panel); log('panel-created');
     }
     if (!host.isConnected) (document.getElementById('netacad-quiz-controls-dock') || document.body).append(host);
+    // The launcher remains available on NetAcad pages. Its visibility is
+    // controlled only by the dedicated Quiz automatique slider.
+    host.hidden = false;
+    host.style.removeProperty('display');
+    host.style.removeProperty('visibility');
+    host.style.removeProperty('opacity');
+    host.style.removeProperty('pointer-events');
   }
   function update() {
     if (!document.body) return;
-    const manual = document.getElementById('netacad-quiz-only-control');
-    const quiz = typeof findInShadowDOM === 'function' && findInShadowDOM('mcq-view, .matching__widget', document).some(visible);
-    if (!host && !manual && !quiz) return;
     mount();
-    host.hidden = !manual && !quiz && !running;
     start.disabled = running || moduleWalkState.running; stop.disabled = !running;
     launcher.textContent = running ? '…' : '•';
     if (running && !expanded) { expanded = true; host.classList.add('open'); launcher.setAttribute('aria-expanded', 'true'); }
   }
-  function safeUpdate() { try { update(); } catch (_) { console.warn('[NetAIcad auto] Mise a jour du panneau impossible ; surveillance continue.'); } }
+  function safeUpdate() { try { update(); } catch (_) { console.warn('[NetAIcad auto] Mise a jour du lanceur impossible ; surveillance continue.'); } }
   setInterval(safeUpdate, 1000);
   let queued = false;
   new MutationObserver(() => { if (!queued) { queued = true; setTimeout(() => { queued = false; safeUpdate(); }, 150); } }).observe(document, {childList: true, subtree: true});
