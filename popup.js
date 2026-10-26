@@ -1,22 +1,22 @@
 document.addEventListener('DOMContentLoaded', () => {
   const el = id => document.getElementById(id);
   const provider = el('provider'), key = el('key'), model = el('model'), status = el('status');
-  const names = {openai: 'OpenAI', mistral: 'Mistral AI'};
+  const names = {openai: 'OpenAI', gemini: 'Gemini', mistral: 'Mistral AI'};
   let busy = false;
   async function read(p) {
-    return p === 'mistral' ? (await chrome.storage.local.get('mistralApiKey')).mistralApiKey : (await chrome.storage.sync.get('openAiApiKey')).openAiApiKey;
+    if (p === 'mistral') return (await chrome.storage.local.get('mistralApiKey')).mistralApiKey;
+    if (p === 'gemini') return (await chrome.storage.sync.get('geminiApiKey')).geminiApiKey;
+    return (await chrome.storage.sync.get('openAiApiKey')).openAiApiKey;
   }
-  function lock(value) {
-    busy = value;
-    for (const control of document.querySelectorAll('button,input,select')) control.disabled = value;
-  }
+  function lock(value) { busy = value; for (const c of document.querySelectorAll('button,input,select')) c.disabled = value; }
   async function refresh() {
     const p = provider.value;
     key.value = ''; status.textContent = '';
     el('keyLabel').textContent = 'Nouvelle cle API ' + names[p];
     key.placeholder = 'Laisser vide pour conserver la cle enregistree';
     el('modelGroup').hidden = p !== 'mistral';
-    el('hint').textContent = p === 'mistral' ? 'Les demandes du bouton quiz seront envoyees a Mistral apres enregistrement.' : 'Les demandes du bouton quiz seront envoyees a OpenAI apres enregistrement. Modele actuel : gpt-4o-mini.';
+    el('openAiModelGroup').hidden = p !== 'openai';
+    el('hint').textContent = p === 'mistral' ? 'Les demandes du bouton quiz seront envoyees a Mistral apres enregistrement.' : p === 'gemini' ? 'Les demandes du bouton quiz seront envoyees a Gemini apres enregistrement.' : 'Les demandes du bouton quiz seront envoyees a OpenAI apres enregistrement.';
     try {
       const saved = await read(p);
       if (provider.value === p) el('saved').textContent = saved ? 'Une cle ' + names[p] + ' est deja enregistree.' : 'Aucune cle ' + names[p] + ' enregistree.';
@@ -34,6 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (p === 'mistral' && !/^[a-zA-Z0-9._:-]{1,120}$/.test(model.value.trim())) { status.textContent = 'Identifiant de modele Mistral invalide.'; return; }
       if (entered) {
         if (p === 'mistral') await chrome.storage.local.set({mistralApiKey: entered});
+        else if (p === 'gemini') await chrome.storage.sync.set({geminiApiKey: entered});
         else await chrome.storage.sync.set({openAiApiKey: entered});
       }
       const values = {quizProvider: p};
@@ -47,15 +48,15 @@ document.addEventListener('DOMContentLoaded', () => {
   el('test').onclick = async () => {
     if (busy) return; lock(true);
     const p = provider.value;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 15000);
     try {
       const secret = key.value.trim() || await read(p);
       if (!secret) { status.textContent = 'Saisis une cle ' + names[p] + ' avant le test.'; return; }
       status.textContent = 'Test aupres de ' + names[p] + ' uniquement...';
-      const url = p === 'mistral' ? 'https://api.mistral.ai/v1/models' : 'https://api.openai.com/v1/models';
-      const response = await fetch(url, {headers: {Authorization: 'Bearer ' + secret}, signal: controller.signal, credentials: 'omit', redirect: 'error'});
-      status.textContent = response.ok ? names[p] + ' : acces a la liste des modeles confirme. Cela ne garantit pas le quota de generation. Clique sur Enregistrer pour activer cette configuration.' : names[p] + ' : HTTP ' + response.status + (response.status === 401 ? ' — cle refusee.' : response.status === 403 ? ' — autorisation insuffisante ; la cle n est pas necessairement invalide.' : response.status === 429 ? ' — limite de requetes atteinte.' : ' — verification necessaire.');
+      const url = p === 'mistral' ? 'https://api.mistral.ai/v1/models' : p === 'gemini' ? 'https://generativelanguage.googleapis.com/v1beta/models?key=' + encodeURIComponent(secret) : 'https://api.openai.com/v1/models';
+      const headers = p === 'gemini' ? {} : {Authorization: 'Bearer ' + secret};
+      const response = await fetch(url, {headers, signal: controller.signal, credentials: 'omit', redirect: 'error'});
+      status.textContent = response.ok ? names[p] + ' : acces a la liste des modeles confirme. Clique sur Enregistrer pour activer cette configuration.' : names[p] + ' : HTTP ' + response.status + (response.status === 401 || response.status === 400 ? ' — cle refusee ou invalide.' : response.status === 403 ? ' — autorisation insuffisante.' : response.status === 429 ? ' — limite de requetes atteinte.' : ' — verification necessaire.');
     } catch (error) { status.textContent = names[p] + (error.name === 'AbortError' ? ' : delai de test depasse.' : ' : test impossible (reseau ou permissions).'); }
     finally { clearTimeout(timeout); lock(false); }
   };
@@ -66,26 +67,19 @@ document.addEventListener('DOMContentLoaded', () => {
     lock(true);
     try {
       if (p === 'mistral') await chrome.storage.local.remove('mistralApiKey');
+      else if (p === 'gemini') await chrome.storage.sync.remove('geminiApiKey');
       else await chrome.storage.sync.remove('openAiApiKey');
       await refresh(); status.textContent = 'Cle ' + names[p] + ' supprimee localement. Elle n est pas revoquee chez le fournisseur.';
     } catch (_) { status.textContent = 'Suppression impossible.'; }
     finally { lock(false); }
   };
-  el('saveGemini').onclick = async () => {
-    if (busy) return;
-    const value = el('gemini').value.trim();
-    if (!value) { status.textContent = 'Saisis une nouvelle cle Gemini ou conserve la configuration existante.'; return; }
-    lock(true);
-    try { await chrome.storage.sync.set({geminiApiKey: value}); el('gemini').value = ''; status.textContent = 'Cle Gemini enregistree. Fournisseur principal inchange.'; }
-    catch (_) { status.textContent = 'Echec de l enregistrement Gemini.'; }
-    finally { lock(false); }
-  };
-  el('advanced').onclick = () => chrome.runtime.openOptionsPage();
+  el('openVisibility').onclick = () => chrome.tabs.create({url: chrome.runtime.getURL('visibility-options.html')});
+  el('advanced')?.addEventListener('click', () => chrome.runtime.openOptionsPage());
   (async () => {
     lock(true);
     try {
       const config = await chrome.storage.local.get(['quizProvider', 'mistralModel']);
-      provider.value = config.quizProvider === 'mistral' ? 'mistral' : 'openai';
+      provider.value = ['openai', 'gemini', 'mistral'].includes(config.quizProvider) ? config.quizProvider : 'openai';
       model.value = config.mistralModel || 'mistral-small-latest';
       await refresh();
     } catch (_) { status.textContent = 'Chargement des parametres impossible.'; }
