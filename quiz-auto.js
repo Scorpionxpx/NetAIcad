@@ -1,6 +1,9 @@
-// Discreet automatic quiz launcher, always available unless hidden by settings.
+// Automatic quiz UI: local quiz frame only; preference styles belong to ui-visibility.js.
 (() => {
+  if (globalThis.__netaiAutoMounted) return;
+  globalThis.__netaiAutoMounted = true;
   let running = false, stopped = false, host, launcher, panel, start, stop, status, expanded = false;
+  let lastQuizAt = 0;
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   const visible = el => el?.isConnected && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
   const log = (event, number = 0) => console.info('[NetAIcad auto]', {event, number, time: new Date().toISOString()});
@@ -50,7 +53,7 @@
     const wasInert = manual?.inert; if (manual) manual.inert = true;
     const helpers = ['netacad-ai-helper-btn-gpt', 'netacad-ai-helper-btn-gemini', 'netacad-ai-helper-btn-webai'].map(id => document.getElementById(id)).filter(Boolean).map(el => ({el, disabled: el.disabled}));
     helpers.forEach(({el}) => { el.disabled = true; });
-    const seen = new Set(); update(); log('start');
+    const seen = new Set(); safeUpdate(); log('start');
     try {
       for (let number = 1; number <= 100; number++) {
         check();
@@ -92,39 +95,40 @@
       running = false; moduleWalkState.running = false;
       if (manual?.isConnected) manual.inert = wasInert;
       helpers.forEach(({el, disabled}) => { if (el.isConnected) el.disabled = disabled; });
-      update();
+      safeUpdate();
     }
   }
   function mount() {
     if (!host) {
       host = document.createElement('div'); host.id = 'netacad-quiz-auto-control';
-      host.style.cssText = 'position:fixed;right:16px;bottom:210px;z-index:2147483647;';
+      host.style.cssText = 'position:fixed;right:12px;bottom:90px;z-index:2147483647;width:calc(100vw - 24px);max-width:360px;pointer-events:none;';
       const root = host.attachShadow({mode: 'closed'});
       const style = document.createElement('style');
-      style.textContent = `button{font:13px system-ui;cursor:pointer;border:0}.launcher{width:34px;height:34px;border-radius:50%;background:rgba(21,32,43,.82);color:#dbe7f7;box-shadow:0 1px 5px rgba(0,0,0,.25);display:grid;place-items:center}.launcher:hover{background:rgba(21,32,43,.95)}.panel{display:none;margin-top:6px;max-width:300px;padding:10px;background:rgba(21,32,43,.94);color:#e9eff9;border:1px solid rgba(255,255,255,.12);border-radius:10px;backdrop-filter:blur(6px)}.open .panel{display:block}.panel button{padding:7px 10px;margin:3px 3px 3px 0;border-radius:6px;background:#2b6cb0;color:white}p{margin:6px 0 0;font-size:12px;color:#c8d5e8}`;
-      launcher = document.createElement('button'); launcher.className = 'launcher'; launcher.type = 'button'; launcher.textContent = '•'; launcher.title = 'Quiz automatique'; launcher.setAttribute('aria-expanded', 'false');
+      style.textContent = ':host{box-sizing:border-box;min-width:0}*{box-sizing:border-box}button{font:13px system-ui;cursor:pointer;border:0;pointer-events:auto}button:focus-visible{outline:2px solid #8dc4ff;outline-offset:2px}.launcher{margin-left:auto;width:34px;height:34px;border-radius:50%;background:#15202b;color:#dbe7f7;display:grid;place-items:center}.panel{display:none;margin-top:8px;width:100%;min-width:0;padding:12px;background:#15202b;color:#e9eff9;border-radius:10px;pointer-events:auto;overflow-wrap:anywhere}:host(.open) .panel{display:block}.panel button{max-width:100%;padding:8px;margin:3px;border-radius:6px;background:#2b6cb0;color:white}p{margin:6px 0 0;font:12px system-ui;max-height:35vh;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}';
+      launcher = document.createElement('button'); launcher.className = 'launcher'; launcher.type = 'button'; launcher.textContent = 'A'; launcher.title = 'Quiz automatique'; launcher.setAttribute('aria-label', 'Ouvrir ou fermer le panneau du quiz automatique'); launcher.setAttribute('aria-expanded', 'false'); launcher.setAttribute('aria-controls', 'auto-panel');
       launcher.onclick = () => { expanded = !expanded; host.classList.toggle('open', expanded); launcher.setAttribute('aria-expanded', String(expanded)); };
-      panel = document.createElement('div'); panel.className = 'panel';
+      panel = document.createElement('div'); panel.className = 'panel'; panel.id = 'auto-panel';
       start = document.createElement('button'); start.type = 'button'; start.textContent = 'Demarrer'; start.onclick = run;
       stop = document.createElement('button'); stop.type = 'button'; stop.textContent = 'Arreter'; stop.onclick = () => { stopped = true; status.textContent = 'Arret demande.'; };
       status = document.createElement('p'); status.setAttribute('role', 'status'); status.textContent = 'Inactif.';
       panel.append(start, stop, status); root.append(style, launcher, panel); log('panel-created');
     }
     if (!host.isConnected) (document.getElementById('netacad-quiz-controls-dock') || document.body).append(host);
-    // The launcher remains available on NetAcad pages. Its visibility is
-    // controlled only by the dedicated Quiz automatique slider.
-    host.hidden = false;
-    host.style.removeProperty('display');
-    host.style.removeProperty('visibility');
-    host.style.removeProperty('opacity');
-    host.style.removeProperty('pointer-events');
+    // Do not reset display, visibility, opacity or pointer-events here.
   }
   function update() {
     if (!document.body) return;
+    // Only inspect this document, never parent or iframe documents.
+    const quiz = typeof findInShadowDOM === 'function' && findInShadowDOM('mcq-view, .matching__widget', document).some(visible);
+    if (quiz) lastQuizAt = Date.now();
+    if (!host && !quiz) return;
     mount();
+    const absent = !quiz && !running && Date.now() - lastQuizAt > 3000;
+    if (host.hidden !== absent) host.hidden = absent;
     start.disabled = running || moduleWalkState.running; stop.disabled = !running;
-    launcher.textContent = running ? '…' : '•';
-    if (running && !expanded) { expanded = true; host.classList.add('open'); launcher.setAttribute('aria-expanded', 'true'); }
+    launcher.textContent = running ? '...' : 'A';
+    launcher.title = running ? 'Quiz automatique en cours : ouvrir pour arreter' : 'Quiz automatique';
+    // Opening is exclusively user controlled, including during execution.
   }
   function safeUpdate() { try { update(); } catch (_) { console.warn('[NetAIcad auto] Mise a jour du lanceur impossible ; surveillance continue.'); } }
   setInterval(safeUpdate, 1000);
