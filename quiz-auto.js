@@ -72,7 +72,7 @@
         let response, timer;
         try { response = await Promise.race([chrome.runtime.sendMessage(request), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Delai IA depasse.')), 60000); })]); } finally { clearTimeout(timer); }
         check();
-        if (!response?.success) throw new Error('Erreur IA : verifier fournisseur, modele, cle et quota.');
+        if (!response?.success) throw new Error(formatAiError(response?.error, {questionNumber:number, expected:data.isMatching ? undefined : (data.isMultipleAnswer ? required : 1), optionCount:data.options?.length, question:data.question}));
         const current = await extractQuestionData();
         if (!current || signature(current) !== before || results()) throw new Error('Page modifiee pendant la requete.');
         status.textContent = 'Question ' + number + ' : selection...';
@@ -90,7 +90,11 @@
         await sleep(500);
       }
       throw new Error('Limite de 100 questions atteinte.');
-    } catch (error) { status.textContent = error.message; log(stopped ? 'stopped' : 'error', seen.size); }
+    } catch (error) {
+      status.textContent = error.message;
+      expanded = true; host.classList.add('open'); launcher.setAttribute('aria-expanded', 'true');
+      log(stopped ? 'stopped' : 'error', seen.size);
+    }
     finally {
       running = false; moduleWalkState.running = false;
       if (manual?.isConnected) manual.inert = wasInert;
@@ -118,7 +122,6 @@
   }
   function update() {
     if (!document.body) return;
-    // Only inspect this document, never parent or iframe documents.
     const quiz = typeof findInShadowDOM === 'function' && findInShadowDOM('mcq-view, .matching__widget', document).some(visible);
     if (quiz) lastQuizAt = Date.now();
     if (!host && !quiz) return;
@@ -128,7 +131,6 @@
     start.disabled = running || moduleWalkState.running; stop.disabled = !running;
     launcher.textContent = running ? '...' : 'A';
     launcher.title = running ? 'Quiz automatique en cours : ouvrir pour arreter' : 'Quiz automatique';
-    // Opening is exclusively user controlled, including during execution.
   }
   function safeUpdate() { try { update(); } catch (_) { console.warn('[NetAIcad auto] Mise a jour du lanceur impossible ; surveillance continue.'); } }
   setInterval(safeUpdate, 1000);
