@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "netAIcad | AI Powered Netacad Quiz Helper",
-  "version": "1.0.16",
+  "version": "1.0.17",
   "description": "NetAcad quiz helper with configurable OpenAI, Gemini and Mistral models",
   "permissions": ["storage", "activeTab", "scripting", "tabs", "debugger"],
   "host_permissions": ["*://*.netacad.com/*", "https://chatgpt.com/*", "https://gemini.google.com/*", "https://generativelanguage.googleapis.com/*", "https://api.mistral.ai/*", "https://api.openai.com/*"],
