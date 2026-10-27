@@ -1,0 +1,12 @@
+const {test} = require('node:test');
+const assert = require('node:assert/strict');
+const {quizIntersectionArea,chooseQuizCandidate} = require('../quiz-cardinality.js');
+const viewport = {left:0,top:0,right:1000,bottom:700};
+test('option in viewport',()=>assert.equal(quizIntersectionArea({left:100,top:100,right:900,bottom:200},viewport),80000));
+test('previous slide outside left',()=>assert.equal(quizIntersectionArea({left:-1000,top:100,right:-200,bottom:200},viewport),0));
+test('next slide outside right',()=>assert.equal(quizIntersectionArea({left:1100,top:100,right:1900,bottom:200},viewport),0));
+test('outside bottom',()=>assert.equal(quizIntersectionArea({left:100,top:800,right:900,bottom:900},viewport),0));
+test('clipped ancestor',()=>assert.equal(quizIntersectionArea({left:100,top:100,right:900,bottom:200},{left:200,top:120,right:800,bottom:180}),36000));
+test('select q12, not last DOM question',()=>assert.equal(chooseQuizCandidate([{widget:'q1',area:0},{widget:'q12',area:80000},{widget:'q13',area:0}]),'q12'));
+test('transition still ambiguous',()=>assert.equal(chooseQuizCandidate([{widget:'q1',area:40000},{widget:'q2',area:40000}]),null));
+test('no question on screen',()=>assert.equal(chooseQuizCandidate([{widget:'q1',area:0}]),null));

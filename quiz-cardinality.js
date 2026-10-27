@@ -17,33 +17,65 @@ function resolveQuizCardinality(question, inputTypes, optionCount) {
   if (count === undefined) fail('Cases a cocher detectees mais nombre de reponses non precise dans la consigne extraite : aucun appel IA.');
   return {isMultipleAnswer:true,requiredAnswers:count,answerCountSource:'instruction-and-checkbox'};
 }
-if (typeof module !== 'undefined') module.exports = {resolveQuizCardinality};
+function quizIntersectionArea(rect, clip) {
+  return Math.max(0,Math.min(rect.right,clip.right)-Math.max(rect.left,clip.left)) * Math.max(0,Math.min(rect.bottom,clip.bottom)-Math.max(rect.top,clip.top));
+}
+function chooseQuizCandidate(candidates) {
+  const shown = candidates.filter(candidate => Number.isFinite(candidate.area) && candidate.area > 1);
+  return shown.length === 1 ? shown[0].widget : null;
+}
+if (typeof module !== 'undefined') module.exports = {resolveQuizCardinality,quizIntersectionArea,chooseQuizCandidate};
 
-// One validation boundary shared by synchronous and asynchronous extraction users.
 (() => {
   if (typeof document === 'undefined' || typeof extractMcqQuestionData !== 'function') return;
-  const original = extractMcqQuestionData;
-  function visible(node) {
+  function shownByStyle(node) {
     if (!node?.isConnected || !node.getClientRects().length) return false;
     let cursor = node;
     while (cursor?.nodeType === 1) {
       const style = cursor.ownerDocument.defaultView.getComputedStyle(cursor);
-      if (cursor.hidden || style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+      if (cursor.hidden || cursor.getAttribute('aria-hidden') === 'true' || style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
       cursor = cursor.parentElement || cursor.getRootNode()?.host;
     }
     return true;
   }
+  function visibleArea(node) {
+    if (!shownByStyle(node)) return 0;
+    const view = node.ownerDocument.defaultView;
+    const clip = {left:0,top:0,right:view.innerWidth,bottom:view.innerHeight};
+    let cursor = node.parentElement || node.getRootNode()?.host;
+    while (cursor?.nodeType === 1) {
+      const style = view.getComputedStyle(cursor), bounds = cursor.getBoundingClientRect();
+      if (bounds.width > 0 && /(hidden|clip|auto|scroll)/.test(style.overflowX)) { clip.left = Math.max(clip.left,bounds.left); clip.right = Math.min(clip.right,bounds.right); }
+      if (bounds.height > 0 && /(hidden|clip|auto|scroll)/.test(style.overflowY)) { clip.top = Math.max(clip.top,bounds.top); clip.bottom = Math.min(clip.bottom,bounds.bottom); }
+      cursor = cursor.parentElement || cursor.getRootNode()?.host;
+    }
+    return quizIntersectionArea(node.getBoundingClientRect(),clip);
+  }
   extractMcqQuestionData = function() {
-    const data = original();
-    if (!data) return data;
-    const options = data.options || [];
-    if (!options.length || !options.every(option => visible(option.element))) throw new Error('La question extraite contient des options absentes ou masquees : aucun appel IA.');
-    const root = options[0].element.getRootNode();
-    if (!root.host?.matches('mcq-view') || !options.every(option => option.element.getRootNode() === root)) throw new Error('Les options ne proviennent pas d une meme question : aucun appel IA.');
-    const candidates = [...new Set(findInShadowDOM('mcq-view',document))].filter(widget => [...(widget.shadowRoot?.querySelectorAll('.mcq__item') || [])].some(visible));
-    if (candidates.length !== 1 || candidates[0] !== root.host) throw new Error('Question active ambigue : attends la fin du chargement. Aucun appel IA.');
-    const inputs = options.map(option => option.element.querySelector('input'));
-    const metadata = resolveQuizCardinality(data.question,inputs.map(input => input?.type || 'unknown'),options.length);
-    return {...data,...metadata};
+    const candidates = [...new Set(findInShadowDOM('mcq-view',document))].map(widget => ({widget,area:[...(widget.shadowRoot?.querySelectorAll('.mcq__item') || [])].reduce((sum,item) => sum + visibleArea(item),0)}));
+    const active = candidates.filter(candidate => candidate.area > 1);
+    if (!active.length) return null;
+    const widget = chooseQuizCandidate(candidates);
+    if (!widget) throw new Error('Plusieurs questions occupent la zone visible pendant la transition. Aucun appel IA.');
+    const root = widget.shadowRoot;
+    const header = root.querySelector('.component__header-container');
+    const bodies = header ? [...new Set(findInShadowDOM('.component__body-inner.mcq__body-inner',header))] : [];
+    if (bodies.length !== 1 || !bodies[0].textContent.trim()) throw new Error('Consigne de la question visible introuvable : aucun appel IA.');
+    let question = bodies[0].textContent.trim();
+    const options = [...root.querySelectorAll('.mcq__item-text-inner')].map((node,index) => ({index,text:node.textContent.trim(),element:node.closest('.mcq__item')}));
+    if (!options.length || !options.every(option => shownByStyle(option.element))) throw new Error('Options de la question visible incompletes : aucun appel IA.');
+    const metadata = resolveQuizCardinality(question,options.map(option => option.element.querySelector('input')?.type || 'unknown'),options.length);
+    const codeWithMcq = root.querySelector('code-with-mcq');
+    if (codeWithMcq) {
+      const code = codeWithMcq.shadowRoot?.querySelector('div.component')?.textContent?.trim();
+      if (!code) throw new Error('Code de la question non charge : aucun appel IA.');
+      question += '\n\nCode:\n' + code;
+    } else if (root.querySelector('sgpluse-codewindowwithmcq-view')) {
+      const windows = [...new Set(findInShadowDOM('code-window-webcomponent-mcq',widget))];
+      const code = windows.map(node => node.shadowRoot?.querySelector('.code-container')?.textContent?.trim() || '').filter(Boolean).join('\n');
+      if (!code) throw new Error('Code de la question non charge : aucun appel IA.');
+      question += '\n\nCode:\n' + code;
+    }
+    return {question,options,...metadata,activeQuestionSource:'viewport-clipped-options'};
   };
 })();
