@@ -1,4 +1,4 @@
-// Automatic quiz UI: local quiz frame only; preference styles belong to ui-visibility.js.
+// Automatic quiz UI with bounded, cancellable transition waits.
 (() => {
   if (globalThis.__netaiAutoMounted) return;
   globalThis.__netaiAutoMounted = true;
@@ -12,6 +12,7 @@
   function buttons() { return [...new Set(findInShadowDOM('button', document))].filter(visible); }
   function submitButton() { const m = buttons().filter(b => /^(envoyer|submit)$/i.test(b.textContent.trim())); return m.length === 1 ? m[0] : null; }
   function results() { return !submitButton() && buttons().some(b => /^(r[eé]essayer|r[eé]initialiser|retry|retake)$/i.test(b.textContent.trim())); }
+  function transient(error) { return /^(Plusieurs questions occupent la zone visible|Question active ambigue|Consigne de la question visible introuvable|Options de la question visible incompletes|Code de la question non charge)/.test(String(error?.message || '')); }
   async function poll(predicate, timeout = 12000) { const end = Date.now() + timeout; while (Date.now() < end) { check(); if (predicate()) return true; await sleep(200); } return false; }
   async function selectMcq(data, answerIndex, required) {
     const indices = Array.isArray(answerIndex) ? answerIndex : [answerIndex];
@@ -58,8 +59,8 @@
       for (let number = 1; number <= 100; number++) {
         check();
         if (results()) { status.textContent = 'Quiz termine.'; return; }
-        const data = await extractQuestionData();
-        if (!data) throw new Error('Question non reconnue.');
+        const data = await waitForStableQuiz({read:extractQuestionData,key:value => signature(value) + JSON.stringify([value.isMultipleAnswer,value.requiredAnswers]),check,finished:results,notify:message => { status.textContent = message; },transient});
+        if (!data) { status.textContent = 'Quiz termine.'; return; }
         const before = signature(data);
         if (seen.has(before)) throw new Error('Question deja traitee.');
         let required = data.requiredAnswers || 1;
@@ -68,6 +69,7 @@
           if (match) required = ({deux: 2, trois: 3, quatre: 4, cinq: 5})[match[1].toLowerCase()] || Number(match[1]);
         }
         const request = data.isMatching ? {action: 'getAnswer', modelType: 'gpt', isMatching: true, rows: data.rows} : {action: 'getAnswer', modelType: 'gpt', question: data.question, options: data.options.map(o => o.text), isMultipleAnswer: data.isMultipleAnswer, requiredAnswers: required};
+        check();
         status.textContent = 'Question ' + number + ' : analyse...'; log('request', number);
         let response, timer;
         try { response = await Promise.race([chrome.runtime.sendMessage(request), new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Delai IA depasse.')), 60000); })]); } finally { clearTimeout(timer); }
@@ -83,11 +85,14 @@
         const latest = await extractQuestionData();
         if (!latest || signature(latest) !== before) throw new Error('Question modifiee avant envoi.');
         check(); seen.add(before); submit.click(); log('submit-once', number);
-        status.textContent = 'Question ' + number + ' : attente...';
-        const advanced = await poll(() => { if (results()) return true; const next = extractQuestionDataSync(); return next && signature(next) !== before; });
-        if (!advanced) throw new Error('Question suivante non detectee.');
+        status.textContent = 'Question ' + number + ' : attente de la transition...';
+        const advanced = await poll(() => {
+          if (results()) return true;
+          try { const next = extractQuestionDataSync(); return next && signature(next) !== before; }
+          catch (error) { if (transient(error)) return false; throw error; }
+        }, 15000);
+        if (!advanced) throw new Error('Question suivante non detectee apres 15 s. Aucun nouvel envoi.');
         if (results()) { status.textContent = 'Quiz termine.'; log('results', number); return; }
-        await sleep(500);
       }
       throw new Error('Limite de 100 questions atteinte.');
     } catch (error) {
@@ -118,7 +123,6 @@
       panel.append(start, stop, status); root.append(style, launcher, panel); log('panel-created');
     }
     if (!host.isConnected) (document.getElementById('netacad-quiz-controls-dock') || document.body).append(host);
-    // Do not reset display, visibility, opacity or pointer-events here.
   }
   function update() {
     if (!document.body) return;

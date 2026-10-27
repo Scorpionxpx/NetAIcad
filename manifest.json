@@ -1,13 +1,13 @@
 {
   "manifest_version": 3,
   "name": "netAIcad | AI Powered Netacad Quiz Helper",
-  "version": "1.0.21",
+  "version": "1.0.22",
   "description": "NetAcad quiz helper with configurable OpenAI, Gemini and Mistral models",
   "permissions": ["storage", "activeTab", "scripting", "tabs", "debugger"],
   "host_permissions": ["*://*.netacad.com/*", "https://chatgpt.com/*", "https://gemini.google.com/*", "https://generativelanguage.googleapis.com/*", "https://api.mistral.ai/*", "https://api.openai.com/*"],
   "options_ui": {"page": "provider-options.html", "open_in_tab": true},
   "action": {"default_popup": "popup.html", "default_icon": {"16": "icons/icon16.jpg", "48": "icons/icon48.jpg", "128": "icons/icon128.jpg"}},
   "background": {"service_worker": "model-worker.js"},
-  "content_scripts": [{"matches": ["*://*.netacad.com/*"], "js": ["content.js", "reading-fixes.js", "completion-fixes.js", "quiz-cardinality.js", "diagnostics.js", "quiz-only.js", "ai-error-messages.js", "quiz-auto.js", "quiz-dock.js", "ui-visibility.js"], "css": ["content.css"], "all_frames": true, "run_at": "document_idle"}],
+  "content_scripts": [{"matches": ["*://*.netacad.com/*"], "js": ["content.js", "reading-fixes.js", "completion-fixes.js", "quiz-cardinality.js", "diagnostics.js", "quiz-only.js", "ai-error-messages.js", "quiz-wait.js", "quiz-auto.js", "quiz-dock.js", "ui-visibility.js"], "css": ["content.css"], "all_frames": true, "run_at": "document_idle"}],
   "icons": {"16": "icons/icon16.jpg", "48": "icons/icon48.jpg", "128": "icons/icon128.jpg"}
 }
