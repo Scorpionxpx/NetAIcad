@@ -1,0 +1,13 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const {netaiReadingControl:control,netaiReadingDecision:decide}=require('../reading-fixes.js');
+test('opens a collapsed reading control',()=>assert.ok(control({expanded:'false',controls:true})));
+test('does not close an expanded control',()=>assert.ok(!control({expanded:'true',controls:true,classes:'accordion__button'})));
+test('opens inactive tabs only',()=>{assert.ok(control({role:'tab',selected:'false'}));assert.ok(!control({role:'tab',selected:'true'}));});
+test('excludes submissions and quiz contexts',()=>{assert.ok(!control({classes:'reveal',type:'submit'}));assert.ok(!control({classes:'reveal',blocked:true}));assert.ok(!control({classes:'reveal',label:'Envoyer'}));});
+test('excludes disabled controls and links',()=>{assert.ok(!control({classes:'accordion',disabled:true}));assert.ok(!control({classes:'accordion',tag:'A'}));});
+test('does not click arbitrary buttons',()=>assert.ok(!control({tag:'BUTTON',label:'Continuer'})));
+test('video has priority over any click',()=>assert.equal(decide({video:true,button:true}),'video'));
+test('quiz and embedded content stop',()=>{assert.equal(decide({quiz:true,button:true}),'quiz');assert.equal(decide({embedded:true}),'embedded');});
+test('requires a stable bottom before finishing',()=>{assert.equal(decide({bottom:true,stableBottom:false}),'scroll');assert.equal(decide({bottom:true,stableBottom:true}),'finished');});
+test('opens controls before finishing',()=>assert.equal(decide({bottom:true,stableBottom:true,button:true}),'click'));
