@@ -1,4 +1,4 @@
-// Automatic quiz UI with bounded, cancellable transition waits.
+// Automatic quiz UI with bounded waits and answer-selection retries only.
 (() => {
   if (globalThis.__netaiAutoMounted) return;
   globalThis.__netaiAutoMounted = true;
@@ -17,12 +17,25 @@
   async function selectMcq(data, answerIndex, required) {
     const indices = Array.isArray(answerIndex) ? answerIndex : [answerIndex];
     if (indices.length !== (data.isMultipleAnswer ? required : 1) || new Set(indices).size !== indices.length || !indices.every(i => Number.isInteger(i) && i >= 0 && i < data.options.length)) throw new Error('Reponse IA non exploitable.');
+    const before = signature(data);
     for (let i = 0; i < data.options.length; i++) {
       check(); const option = data.options[i], input = option.element?.querySelector('input');
       if (!input || !option.element.isConnected) throw new Error('Selection non verifiable.');
       const wanted = indices.includes(i);
       if (Boolean(input.checked) !== wanted && (wanted || input.type === 'checkbox')) {
-        if (!await robustClick(option.element, () => Boolean(input.checked) === wanted)) throw new Error('Clic de reponse non confirme.');
+        await retryConfirmedAnswerClick({
+          click:async () => { await robustClick(option.element, () => Boolean(input.checked) === wanted); },
+          verify:() => Boolean(input.checked) === wanted,
+          validate:async () => {
+            check();
+            if (!option.element.isConnected || option.element.querySelector('input') !== input) throw new Error('Controle de reponse remplace : relances annulees. Aucun envoi.');
+            const current = await extractQuestionData();
+            if (!current || signature(current) !== before || current.isMultipleAnswer !== data.isMultipleAnswer || current.requiredAnswers !== data.requiredAnswers || current.options[i]?.element !== option.element || results()) throw new Error('Question modifiee : relances du clic annulees. Aucun envoi.');
+          },
+          check,
+          notify:attempt => { status.textContent = 'Selection : nouvelle tentative ' + attempt + '/3 du clic de reponse...'; log('answer-click-retry',attempt); },
+          sleep
+        });
       }
     }
     if (!data.options.every((o, i) => Boolean(o.element.querySelector('input')?.checked) === indices.includes(i))) throw new Error('Choix selectionnes differents de la reponse.');
